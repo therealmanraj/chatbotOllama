@@ -1,6 +1,5 @@
-langchain_openai
-langchain_core
-python-dotenv
 streamlit
+langchain_core
 langchain_community
-langserve
+langchain_ollama
+pdfplumber
