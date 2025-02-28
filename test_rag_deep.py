@@ -1,28 +1,27 @@
 import streamlit as st
 from langchain_community.document_loaders import PDFPlumberLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_core.vectorstores import InMemoryVectorStore
+from langchain_community.vectorstores import FAISS
 from langchain_ollama import OllamaEmbeddings
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_ollama.llms import OllamaLLM
 import re
+import pandas as pd
 import os
+from concurrent.futures import ThreadPoolExecutor
 
+# --- Streamlit Styles ---
 st.markdown("""
     <style>
     .stApp {
         background-color: #0E1117;
         color: #FFFFFF;
     }
-    
-    /* Chat Input Styling */
     .stChatInput input {
         background-color: #1E1E1E !important;
         color: #FFFFFF !important;
         border: 1px solid #3A3A3A !important;
     }
-    
-    /* User Message Styling */
     .stChatMessage[data-testid="stChatMessage"]:nth-child(odd) {
         background-color: #1E1E1E !important;
         border: 1px solid #3A3A3A !important;
@@ -31,8 +30,6 @@ st.markdown("""
         padding: 15px;
         margin: 10px 0;
     }
-    
-    /* Assistant Message Styling */
     .stChatMessage[data-testid="stChatMessage"]:nth-child(even) {
         background-color: #2A2A2A !important;
         border: 1px solid #404040 !important;
@@ -41,53 +38,35 @@ st.markdown("""
         padding: 15px;
         margin: 10px 0;
     }
-    
-    /* Avatar Styling */
-    .stChatMessage .avatar {
-        background-color: #00FFAA !important;
-        color: #000000 !important;
-    }
-    
-    /* Text Color Fix */
-    .stChatMessage p, .stChatMessage div {
-        color: #FFFFFF !important;
-    }
-    
-    .stFileUploader {
-        background-color: #1E1E1E;
-        border: 1px solid #3A3A3A;
-        border-radius: 5px;
-        padding: 15px;
-    }
-    
     h1, h2, h3 {
         color: #00FFAA !important;
     }
     </style>
     """, unsafe_allow_html=True)
 
+# --- Constants ---
 PROMPT_TEMPLATE = """
-You are an expert research assistant. Use the provided context to answer the query. 
+You are an expert research assistant. Use the provided context to answer the query.
 If unsure, state that you don't know. Be concise and factual (max 3 sentences).
 
-Query: {user_query} 
-Context: {document_context} 
+Query: {user_query}
+Context: {document_context}
 Answer:
 """
 PDF_STORAGE_PATH = 'document_store/pdfs/'
+VECTOR_STORE_PATH = "faiss_index"
 EMBEDDING_MODEL = OllamaEmbeddings(model="deepseek-r1:1.5b")
-DOCUMENT_VECTOR_DB = InMemoryVectorStore(EMBEDDING_MODEL)
 LANGUAGE_MODEL = OllamaLLM(model="deepseek-r1:1.5b")
 
 
+# --- Helper Functions ---
 def save_uploaded_file(uploaded_file):
-    # Ensure the directory exists
+    file_path = os.path.join(PDF_STORAGE_PATH, uploaded_file.name)
     os.makedirs(PDF_STORAGE_PATH, exist_ok=True)
-    
-    file_path = PDF_STORAGE_PATH + uploaded_file.name
     with open(file_path, "wb") as file:
         file.write(uploaded_file.getbuffer())
     return file_path
+
 def load_pdf_documents(file_path):
     document_loader = PDFPlumberLoader(file_path)
     return document_loader.load()
@@ -100,53 +79,82 @@ def chunk_documents(raw_documents):
     )
     return text_processor.split_documents(raw_documents)
 
-def index_documents(document_chunks):
-    DOCUMENT_VECTOR_DB.add_documents(document_chunks)
-
-def find_related_documents(query):
-    return DOCUMENT_VECTOR_DB.similarity_search(query)
-
 def generate_answer(user_query, context_documents):
     context_text = "\n\n".join([doc.page_content for doc in context_documents])
     conversation_prompt = ChatPromptTemplate.from_template(PROMPT_TEMPLATE)
     response_chain = conversation_prompt | LANGUAGE_MODEL
-    return response_chain.invoke({"user_query": user_query, "document_context": context_text})
+    ai_response = response_chain.invoke({
+        "user_query": user_query,
+        "document_context": context_text
+    })
+    return ai_response.strip()
+
+def process_question(question):
+    relevant_docs = st.session_state.vector_store.similarity_search(question)
+    ai_response = generate_answer(question, relevant_docs)
+
+    # Clean response
+    ai_response = re.sub(r"<think>.*?</think>", "", ai_response, flags=re.DOTALL).strip()
+    return question, ai_response
 
 
-# UI Configuration
-
+# --- UI Configuration ---
 st.title("📘 DocuMind AI")
 st.markdown("### Your Intelligent Document Assistant")
 st.markdown("---")
 
-# File Upload Section
+# --- File Upload ---
 uploaded_pdf = st.file_uploader(
     "Upload Research Document (PDF)",
     type="pdf",
     help="Select a PDF document for analysis",
     accept_multiple_files=False
-
 )
 
+# --- Load Questions from CSV ---
+df = pd.read_csv('Combined(Mani).csv', encoding='latin1')
+
+# Ensure result column exists
+if 'deepseek-r1:1.5b' not in df.columns:
+    df['deepseek-r1:1.5b'] = None
+
+# --- PDF Processing (With FAISS Caching) ---
 if uploaded_pdf:
     saved_path = save_uploaded_file(uploaded_pdf)
-    raw_docs = load_pdf_documents(saved_path)
-    processed_chunks = chunk_documents(raw_docs)
-    index_documents(processed_chunks)
-    
-    st.success("✅ Document processed successfully! Ask your questions below.")
-    
-    user_input = st.chat_input("Enter your question about the document...")
-    
-    if user_input:
-        with st.chat_message("user"):
-            st.write(user_input)
-        
-        with st.spinner("Analyzing document..."):
-            relevant_docs = find_related_documents(user_input)
-            ai_response = generate_answer(user_input, relevant_docs)
 
-        ai_response = re.sub(r"<think>.*?</think>", "", ai_response, flags=re.DOTALL).strip()
-        
+    if "vector_store" not in st.session_state or st.session_state.last_uploaded != uploaded_pdf.name:
+        raw_docs = load_pdf_documents(saved_path)
+        processed_chunks = chunk_documents(raw_docs)
+
+        # Create FAISS Vector Store
+        vector_store = FAISS.from_documents(processed_chunks, EMBEDDING_MODEL)
+        vector_store.save_local(VECTOR_STORE_PATH)
+
+        # Cache in session state
+        st.session_state.vector_store = vector_store
+        st.session_state.last_uploaded = uploaded_pdf.name
+    else:
+        # Load from FAISS cache if already processed
+        st.session_state.vector_store = FAISS.load_local(VECTOR_STORE_PATH, EMBEDDING_MODEL)
+
+    st.success("✅ Document processed successfully! Ask your questions below.")
+
+    # --- Process All Questions (Parallel) ---
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        results = list(executor.map(process_question, df['Question']))
+
+    # --- Update DataFrame ---
+    for question, ai_response in results:
+        with st.chat_message("user"):
+            st.write(question)
+
         with st.chat_message("assistant", avatar="🤖"):
             st.write(ai_response)
+
+        df.loc[df['Question'] == question, 'deepseek-r1:1.5b'] = ai_response
+
+    # --- Save Results ---
+    df.to_csv('deepseek-r1:1.5b.csv', index=False)
+
+    st.success("✅ All answers saved to 'deepseek-r1:1.5b.csv'!")
+
