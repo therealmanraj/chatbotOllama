@@ -141,3 +141,19 @@ ensure_model_downloaded("deepseek-r1:1.5b")
 ---
 
 Let me know if you want me to save this as a file (`README.md` or `setup_instructions.md`) for you!
+
+Model Name Description Command to Pull Size
+LLaMA 2 7B Meta’s popular model, good balance of performance and size. ollama pull llama2 ~3.8 GB
+LLaMA 2 13B Larger version, better reasoning. ollama pull llama2:13b ~7.3 GB
+LLaMA 2 70B Huge version, strong capabilities (but slow). ollama pull llama2:70b ~40 GB
+Mistral 7B Compact and powerful general-purpose model. ollama pull mistral ~4 GB
+Mixtral Mixture of Experts (MoE), very efficient reasoning. ollama pull mixtral ~12 GB
+Gemma 2B Google’s lightweight open-source model. ollama pull gemma:2b ~2 GB
+Gemma 7B Larger version for more reasoning power. ollama pull gemma:7b ~5 GB
+Phi 2 Small, fast, optimized for casual use. ollama pull phi ~1.5 GB
+Orca Mini 3B Fine-tuned for reasoning, GPT-4 inspired. ollama pull orca-mini ~1.7 GB
+CodeLLaMA 7B Meta’s code-focused model. ollama pull codellama:7b ~4 GB
+CodeLLaMA 13B Bigger code model. ollama pull codellama:13b ~7 GB
+DeepSeek Chat 7B Conversational model optimized for research & reasoning. ollama pull deepseek ~4 GB
+Dolphin 2.5 Mixtral Open chatbot based on Mixtral. ollama pull dolphin-mixtral ~12 GB
+Neural Chat 7B Intel’s conversational assistant. ollama pull neural-chat ~4 GB
