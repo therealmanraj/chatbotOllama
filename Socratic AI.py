@@ -115,8 +115,8 @@ def generate_answer(user_query, context_documents):
 
 # UI Configuration
 
-st.title("📘 DocuMind AI")
-st.markdown("### Your Intelligent Document Assistant")
+st.title("Socratic AI")
+st.markdown("Learning Starts Here")
 st.markdown("---")
 
 # File Upload Section
@@ -125,7 +125,6 @@ uploaded_pdf = st.file_uploader(
     type="pdf",
     help="Select a PDF document for analysis",
     accept_multiple_files=False
-
 )
 
 if uploaded_pdf:
