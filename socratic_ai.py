@@ -8,6 +8,8 @@ from langchain_ollama.llms import OllamaLLM
 import re
 import os
 
+# streamlit run socratic_ai.py  
+
 st.markdown("""
     <style>
     .stApp {
